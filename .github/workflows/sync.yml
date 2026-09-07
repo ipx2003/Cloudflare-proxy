@@ -1,0 +1,54 @@
+name: Upstream Sync
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Smart Sync
+        env:
+          MY_PAT: ${{ secrets.MY_SYNC_TOKEN }}
+        run: |
+          PROTOCOL="https://"
+          DOMAIN="github.com"
+          UPSTREAM_PATH="/eooce/Cloudflare-proxy.git"
+          MY_PATH="/ipx2003/Cloudflare-proxy.git"
+          
+          # 1. 备份当前的同步脚本（防止被上游覆盖）
+          mkdir -p /tmp/backup_workflows
+          cp .github/workflows/sync.yml /tmp/backup_workflows/
+
+          git config --local --unset-all http.https://github.com || true
+          git config --global user.name "ipx2003"
+          git config --global user.email "ipx2003@://github.com"
+          
+          git remote add upstream "${PROTOCOL}${DOMAIN}${UPSTREAM_PATH}"
+          git fetch upstream main
+
+          if [ "$(git rev-parse HEAD)" = "$(git rev-parse upstream/main)" ]; then
+            echo "✅ 上游没有新更新，跳过同步。"
+            exit 0
+          fi
+
+          # 2. 强制切换到上游代码
+          git checkout -B main upstream/main
+
+          # 3. 恢复自己的同步脚本并清理上游脚本
+          rm -rf .github/workflows/*.yml
+          mkdir -p .github/workflows
+          cp /tmp/backup_workflows/sync.yml .github/workflows/
+          
+          # 4. 提交并推送
+          git add .
+          git commit -m "Smart Sync: Update from upstream & retain sync workflow" || echo "No changes"
+          git push "${PROTOCOL}ipx2003:${MY_PAT}@${DOMAIN}${MY_PATH}" main --force
